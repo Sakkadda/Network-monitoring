@@ -1,0 +1,35 @@
+package logentry
+
+import (
+	"encoding/json"
+	"time"
+)
+
+type Level string
+
+const (
+	LevelInfo    Level = "info"
+	LevelWarning Level = "warning"
+	LevelError   Level = "error"
+	LevelAudit   Level = "audit"
+)
+
+type ActorRole string
+
+const (
+	ActorRoleSystem ActorRole = "system"
+	ActorRoleAdmin  ActorRole = "admin"
+)
+
+type LogEntry struct {
+	ID        int64           `json:"id" db:"id"`
+	DeviceID  *int64          `json:"deviceId,omitempty" db:"device_id"`
+	Level     Level           `json:"level" db:"level"`
+	Action    string          `json:"action" db:"action"`
+	Message   string          `json:"message" db:"message"`
+	ActorRole ActorRole       `json:"actorRole" db:"actor_role"`
+	ActorName string          `json:"actorName" db:"actor_name"`
+	Source    string          `json:"source" db:"source"`
+	Metadata  json.RawMessage `json:"metadata" db:"metadata"`
+	CreatedAt time.Time       `json:"createdAt" db:"created_at"`
+}
