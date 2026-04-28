@@ -20,7 +20,7 @@ coverage.out
 .vscode/
 
 # Logs
-logs/
+/logs/
 *.log
 
 # OS
