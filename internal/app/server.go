@@ -9,8 +9,10 @@ import (
 
 	"github.com/sakkada/network-monitoring-system/internal/api/routes"
 	"github.com/sakkada/network-monitoring-system/internal/config"
+	"github.com/sakkada/network-monitoring-system/internal/domain/user"
 	postgresrepo "github.com/sakkada/network-monitoring-system/internal/repository/postgres"
 	"github.com/sakkada/network-monitoring-system/internal/seed"
+	authsvc "github.com/sakkada/network-monitoring-system/internal/service/auth"
 	devicesvc "github.com/sakkada/network-monitoring-system/internal/service/device"
 	logssvc "github.com/sakkada/network-monitoring-system/internal/service/logs"
 	monitoringsvc "github.com/sakkada/network-monitoring-system/internal/service/monitoring"
@@ -30,10 +32,45 @@ func NewServer(cfg config.Config) (*gin.Engine, func(), error) {
 		return nil, nil, err
 	}
 
+	authService := authsvc.NewService(
+		postgresrepo.NewUserRepository(pool),
+		cfg.AuthSecret,
+		time.Duration(cfg.AuthTokenTTLHours)*time.Hour,
+	)
 	deviceService := devicesvc.NewService(postgresrepo.NewDeviceRepository(pool))
 	metricService := monitoringsvc.NewService(postgresrepo.NewMetricRepository(pool))
 	logService := logssvc.NewService(postgresrepo.NewLogRepository(pool))
 	simulatorCtx, cancelSimulator := context.WithCancel(context.Background())
+	var simulatorEngine *simulator.DeviceStateSimulator
+
+	if err := authService.EnsureDefaultUsers([]authsvc.SeedUser{
+		{
+			Username:          "admin",
+			Password:          "admin123",
+			Role:              user.RoleAdmin,
+			DisplayName:       "admin",
+			PreferredLanguage: user.LanguageRU,
+			StartTab:          user.StartTabDashboard,
+		},
+		{
+			Username:          "skd",
+			Password:          "1234",
+			Role:              user.RoleAdmin,
+			DisplayName:       "skd",
+			PreferredLanguage: user.LanguageRU,
+			StartTab:          user.StartTabDashboard,
+		},
+		{
+			Username:          "user",
+			Password:          "user123",
+			Role:              user.RoleUser,
+			DisplayName:       "user",
+			PreferredLanguage: user.LanguageRU,
+			StartTab:          user.StartTabDashboard,
+		},
+	}); err != nil {
+		return nil, nil, err
+	}
 
 	if cfg.SeedMockData {
 		if err := seed.SeedMockData(deviceService, metricService, logService); err != nil {
@@ -42,23 +79,25 @@ func NewServer(cfg config.Config) (*gin.Engine, func(), error) {
 	}
 
 	if cfg.SimulatorEnabled {
-		engine := simulator.NewDeviceStateSimulator(
+		simulatorEngine = simulator.NewDeviceStateSimulator(
 			deviceService,
 			metricService,
 			logService,
 			time.Duration(cfg.SimulatorIntervalSecond)*time.Second,
 		)
 
-		go engine.Start(simulatorCtx)
+		go simulatorEngine.Start(simulatorCtx)
 		log.Printf("device simulator enabled with interval %ds", cfg.SimulatorIntervalSecond)
 	}
 
 	routes.Register(
 		router,
 		cfg,
+		authService,
 		deviceService,
 		metricService,
 		logService,
+		simulatorEngine,
 	)
 
 	cleanup := func() {

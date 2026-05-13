@@ -28,8 +28,8 @@ type UpdateDeviceRequest struct {
 	Model         string        `json:"model" binding:"max=80"`
 	Location      string        `json:"location" binding:"max=150"`
 	Description   string        `json:"description"`
-	Status        device.Status `json:"status" binding:"required,oneof=online warning offline unknown"`
-	DataSource    device.Source `json:"dataSource" binding:"required,oneof=manual simulated agent"`
-	IsActive      bool          `json:"isActive"`
+	Status        device.Status `json:"status" binding:"omitempty,oneof=online warning offline unknown"`
+	DataSource    device.Source `json:"dataSource" binding:"omitempty,oneof=manual simulated agent"`
+	IsActive      *bool         `json:"isActive"`
 	LastCheckedAt *time.Time    `json:"lastCheckedAt"`
 }

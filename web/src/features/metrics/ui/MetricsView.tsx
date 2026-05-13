@@ -1,37 +1,25 @@
-﻿import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
 import { LIVE_REFETCH_MS, useGetDevicesQuery, useGetMetricsQuery } from '../../../shared/api/monitoringApi';
 import { translateLocation } from '../../../shared/lib/display';
+import { uiText } from '../../../shared/lib/i18n';
+import type { Language } from '../../../shared/lib/language';
+import { formatUnit } from '../../../shared/lib/language';
 
 type MetricKey = 'ping_latency' | 'memory_usage' | 'cpu_usage' | 'packet_loss';
-
-const metricLabels: Record<MetricKey, string> = {
-  ping_latency: 'Задержка',
-  memory_usage: 'Память',
-  cpu_usage: 'Процессор',
-  packet_loss: 'Потери пакетов',
-};
-
-const statusLabels: Record<string, string> = {
-  online: 'В сети',
-  warning: 'Предупреждение',
-  offline: 'Недоступно',
-  unknown: 'Неизвестно',
-};
-
-const metricStatusLabels: Record<string, string> = {
-  normal: 'Норма',
-  warning: 'Внимание',
-  critical: 'Критично',
-};
+type MetricSortField = 'location' | 'status' | 'ping_latency' | 'memory_usage' | 'cpu_usage' | 'packet_loss';
 
 const metricOrder: MetricKey[] = ['ping_latency', 'memory_usage', 'cpu_usage', 'packet_loss'];
 
-function formatUnit(unit: string) {
-  return unit === 'ms' ? 'мс' : unit;
-}
+export function MetricsView({ language }: { language: Language }) {
+  const text = uiText[language].metrics;
+  const metricLabels: Record<MetricKey, string> = text.metricLabels;
+  const statusLabels: Record<string, string> = text.statusLabels;
+  const metricStatusLabels: Record<string, string> = text.metricStatusLabels;
+  const [sortField, setSortField] = useState<MetricSortField>('status');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [searchQuery, setSearchQuery] = useState('');
 
-export function MetricsView() {
   const { data: devices = [], isLoading: devicesLoading, isError: devicesError } = useGetDevicesQuery(undefined, {
     pollingInterval: LIVE_REFETCH_MS,
     refetchOnFocus: true,
@@ -44,6 +32,14 @@ export function MetricsView() {
   });
 
   const deviceMetricCards = useMemo(() => {
+    const statusOrder: Record<string, number> = {
+      offline: 0,
+      warning: 1,
+      online: 2,
+      unknown: 3,
+    };
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+
     return devices
       .map((device) => {
         const latestMetrics = new Map<MetricKey, (typeof metrics)[number]>();
@@ -65,24 +61,75 @@ export function MetricsView() {
             label: metricLabels[key],
             metric: latestMetrics.get(key) ?? null,
           })),
+          sortValues: {
+            location: translateLocation(device.location),
+            status: statusOrder[device.status] ?? 9,
+            ping_latency: latestMetrics.get('ping_latency')?.value ?? -1,
+            memory_usage: latestMetrics.get('memory_usage')?.value ?? -1,
+            cpu_usage: latestMetrics.get('cpu_usage')?.value ?? -1,
+            packet_loss: latestMetrics.get('packet_loss')?.value ?? -1,
+          },
         };
       })
-      .sort((left, right) => left.device.name.localeCompare(right.device.name, 'ru'));
-  }, [devices, metrics]);
+      .filter(({ device }) => (
+        !normalizedQuery || device.name.toLowerCase().includes(normalizedQuery)
+      ))
+      .sort((left, right) => {
+        let result = 0;
+
+        if (sortField === 'location') {
+          result = left.sortValues.location.localeCompare(right.sortValues.location, language === 'en' ? 'en' : 'ru');
+        } else if (sortField === 'status') {
+          result = left.sortValues.status - right.sortValues.status;
+        } else {
+          result = left.sortValues[sortField] - right.sortValues[sortField];
+        }
+
+        if (result === 0) {
+          result = left.device.name.localeCompare(right.device.name, language === 'en' ? 'en' : 'ru');
+        }
+
+        return sortDirection === 'asc' ? result : -result;
+      });
+  }, [devices, language, metricLabels, metrics, searchQuery, sortDirection, sortField]);
 
   if (devicesLoading || metricsLoading) {
-    return <div className="panel-empty">Загрузка метрик...</div>;
+    return <div className="panel-empty">{text.loading}</div>;
   }
 
   if (devicesError || metricsError) {
-    return <div className="panel-empty">Не удалось загрузить метрики.</div>;
+    return <div className="panel-empty">{text.error}</div>;
   }
 
   return (
-    <section className="panel">
-      <div className="section-heading">
-        <h2>Метрики мониторинга</h2>
-        <span>Последние значения доступности и производительности по каждому устройству</span>
+    <section className="metrics-page">
+      <div className="metrics-toolbar">
+        <label className="field metrics-toolbar__search">
+          <span>{text.search}</span>
+          <input
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder={text.searchPlaceholder}
+          />
+        </label>
+        <div className="table-sort">
+          <label className="table-sort__label" htmlFor="metrics-sort-field">{text.sorting}</label>
+          <select
+            id="metrics-sort-field"
+            value={sortField}
+            onChange={(event) => setSortField(event.target.value as MetricSortField)}
+          >
+            <option value="location">{text.byLocation}</option>
+            <option value="status">{text.byStatus}</option>
+            <option value="ping_latency">{text.byLatency}</option>
+            <option value="memory_usage">{text.byMemory}</option>
+            <option value="cpu_usage">{text.byCpu}</option>
+            <option value="packet_loss">{text.byPacketLoss}</option>
+          </select>
+          <button type="button" className="ghost-button" onClick={() => setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'))}>
+            {sortDirection === 'asc' ? text.ascending : text.descending}
+          </button>
+        </div>
       </div>
       <div className="device-metric-grid">
         {deviceMetricCards.map(({ device, metrics: deviceMetrics }) => (
@@ -102,16 +149,16 @@ export function MetricsView() {
                   <span className="device-metric-tile__label">{label}</span>
                   {metric ? (
                     <>
-                      <strong className="device-metric-tile__value">{metric.value} {formatUnit(metric.unit)}</strong>
+                      <strong className="device-metric-tile__value">{metric.value} {formatUnit(metric.unit, language)}</strong>
                       <span className={`status-pill status-pill--${metric.status === 'critical' ? 'offline' : metric.status === 'warning' ? 'warning' : 'online'}`}>
                         {metricStatusLabels[metric.status]}
                       </span>
-                      <small>{new Date(metric.collectedAt).toLocaleTimeString('ru-RU')}</small>
+                      <small>{new Date(metric.collectedAt).toLocaleTimeString(language === 'en' ? 'en-GB' : 'ru-RU')}</small>
                     </>
                   ) : (
                     <>
-                      <strong className="device-metric-tile__value">Нет данных</strong>
-                      <small>Метрика еще не поступала</small>
+                      <strong className="device-metric-tile__value">{text.noData}</strong>
+                      <small>{text.notArrived}</small>
                     </>
                   )}
                 </div>

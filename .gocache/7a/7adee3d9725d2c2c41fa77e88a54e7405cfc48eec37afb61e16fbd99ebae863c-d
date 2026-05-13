@@ -1,0 +1,8 @@
+./auth.go
+./common.go
+./device.go
+./health.go
+./logentry.go
+./metric.go
+./simulator.go
+./user.go

@@ -7,12 +7,15 @@ import {
   useGetDevicesQuery,
   useUpdateDeviceMutation,
 } from '../../../shared/api/monitoringApi';
+import { uiText } from '../../../shared/lib/i18n';
 import { createDevicePayloadSchema, type Device, updateDevicePayloadSchema } from '../../../shared/lib/schemas';
-import { translateLocation } from '../../../shared/lib/display';
+import { normalizeLocationInput, translateLocation } from '../../../shared/lib/display';
+import type { Language } from '../../../shared/lib/language';
 import { ConfirmDialog } from '../../../shared/ui/ConfirmDialog';
 
 type DevicesViewProps = {
   isAdmin: boolean;
+  language: Language;
 };
 
 type SortField = 'name' | 'deviceType' | 'location' | 'dataSource' | 'status';
@@ -38,14 +41,8 @@ const initialFormState: DeviceFormState = {
   description: '',
 };
 
-const statusLabels: Record<string, string> = {
-  online: 'В сети',
-  warning: 'Предупреждение',
-  offline: 'Недоступно',
-  unknown: 'Неизвестно',
-};
-
-export function DevicesView({ isAdmin }: DevicesViewProps) {
+export function DevicesView({ isAdmin, language }: DevicesViewProps) {
+  const text = uiText[language].devices;
   const { data = [], isLoading, isError } = useGetDevicesQuery(undefined, {
     pollingInterval: LIVE_REFETCH_MS,
     refetchOnFocus: true,
@@ -63,6 +60,20 @@ export function DevicesView({ isAdmin }: DevicesViewProps) {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [deviceToDelete, setDeviceToDelete] = useState<Device | null>(null);
   const [deleteError, setDeleteError] = useState('');
+
+  function extractMutationErrorMessage(fallbackMessage: string, error: unknown) {
+    if (error && typeof error === 'object' && 'data' in error) {
+      const responseData = (error as { data?: unknown }).data;
+      if (responseData && typeof responseData === 'object' && 'error' in responseData) {
+        const message = (responseData as { error?: unknown }).error;
+        if (typeof message === 'string' && message.trim()) {
+          return message;
+        }
+      }
+    }
+
+    return fallbackMessage;
+  }
 
   const isSubmitting = isCreating || isUpdating;
 
@@ -92,11 +103,11 @@ export function DevicesView({ isAdmin }: DevicesViewProps) {
   }, [data, sortDirection, sortField]);
 
   if (isLoading) {
-    return <div className="panel-empty">Загрузка списка устройств...</div>;
+    return <div className="panel-empty">{text.loading}</div>;
   }
 
   if (isError) {
-    return <div className="panel-empty">Не удалось загрузить устройства.</div>;
+    return <div className="panel-empty">{text.error}</div>;
   }
 
   function resetModal() {
@@ -132,45 +143,56 @@ export function DevicesView({ isAdmin }: DevicesViewProps) {
   }
 
   async function handleSubmitDevice() {
+    const normalizedFormState = {
+      ...formState,
+      name: formState.name.trim(),
+      ipAddress: formState.ipAddress.trim(),
+      deviceType: formState.deviceType.trim(),
+      vendor: formState.vendor.trim(),
+      model: formState.model.trim(),
+      location: normalizeLocationInput(formState.location.trim()),
+      description: formState.description.trim(),
+    };
+
     if (modalMode === 'edit' && editingDevice) {
       const parsed = updateDevicePayloadSchema.safeParse({
-        ...formState,
+        ...normalizedFormState,
         status: editingDevice.status,
         dataSource: editingDevice.dataSource,
         isActive: editingDevice.isActive,
       });
 
       if (!parsed.success) {
-        setFormError('Проверьте заполнение формы устройства.');
+        setFormError(text.invalidForm);
         return;
       }
 
       try {
         await updateDevice({ id: editingDevice.id, payload: parsed.data }).unwrap();
         resetModal();
-      } catch {
-        setFormError('Не удалось обновить устройство.');
+      } catch (error) {
+        setFormError(extractMutationErrorMessage(text.updateFailed, error));
       }
 
       return;
     }
 
     const parsed = createDevicePayloadSchema.safeParse({
-      ...formState,
+      ...normalizedFormState,
       dataSource: 'manual' as const,
       isActive: true,
     });
 
     if (!parsed.success) {
-      setFormError('Проверьте заполнение формы устройства.');
+      setFormError(text.invalidForm);
       return;
     }
 
     try {
       await createDevice(parsed.data).unwrap();
       resetModal();
-    } catch {
-      setFormError('Не удалось добавить устройство.');
+    } catch (error) {
+      setFormError(extractMutationErrorMessage(text.createFailed, error));
     }
   }
 
@@ -178,9 +200,9 @@ export function DevicesView({ isAdmin }: DevicesViewProps) {
     try {
       await deleteDevice(id).unwrap();
       setDeviceToDelete(null);
-    } catch {
+    } catch (error) {
       setDeviceToDelete(null);
-      setDeleteError('Не удалось удалить устройство.');
+      setDeleteError(extractMutationErrorMessage(text.deleteFailed, error));
     }
   }
 
@@ -189,12 +211,12 @@ export function DevicesView({ isAdmin }: DevicesViewProps) {
       <section className="panel">
         <div className="section-heading">
           <div>
-            <h2>Устройства сети</h2>
-            <span>Список узлов с ручным и симулированным вводом данных</span>
+            <h2>{text.title}</h2>
+            <span>{text.subtitle}</span>
           </div>
           <div className="section-heading__actions">
             <div className="table-sort">
-              <label className="table-sort__label" htmlFor="device-sort-field">Сортировка</label>
+              <label className="table-sort__label" htmlFor="device-sort-field">{text.sorting}</label>
               <select
                 id="device-sort-field"
                 value={sortField}
@@ -206,34 +228,34 @@ export function DevicesView({ isAdmin }: DevicesViewProps) {
                   }
                 }}
               >
-                <option value="name">По имени</option>
-                <option value="deviceType">По типу</option>
-                <option value="location">По локации</option>
-                <option value="dataSource">По источнику</option>
-                <option value="status">По статусу</option>
+                <option value="name">{text.byName}</option>
+                <option value="deviceType">{text.byType}</option>
+                <option value="location">{text.byLocation}</option>
+                <option value="dataSource">{text.bySource}</option>
+                <option value="status">{text.byStatus}</option>
               </select>
               <button type="button" className="ghost-button" onClick={() => setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'))}>
-                {sortDirection === 'asc' ? 'По возрастанию' : 'По убыванию'}
+                {sortDirection === 'asc' ? text.ascending : text.descending}
               </button>
             </div>
             {isAdmin ? (
               <button type="button" className="primary-button" onClick={openCreateModal}>
-                Добавить устройство
+                {text.addDevice}
               </button>
             ) : null}
           </div>
         </div>
         <div className="table-wrap">
-          <table className="data-table">
+          <table className={`data-table ${isAdmin ? '' : 'data-table--readonly'}`.trim()}>
             <thead>
               <tr>
-                <th>Имя</th>
+                <th>{text.name}</th>
                 <th>IP</th>
-                <th>Тип</th>
-                <th>Локация</th>
-                <th>Источник</th>
-                <th>Статус</th>
-                {isAdmin ? <th>Действия</th> : null}
+                <th>{text.type}</th>
+                <th>{text.location}</th>
+                <th>{text.source}</th>
+                <th>{text.status}</th>
+                {isAdmin ? <th className="data-table__actions-column">{text.actions}</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -244,15 +266,15 @@ export function DevicesView({ isAdmin }: DevicesViewProps) {
                   <td>{item.deviceType}</td>
                   <td>{translateLocation(item.location)}</td>
                   <td>{item.dataSource}</td>
-                  <td><span className={`status-pill status-pill--${item.status}`}>{statusLabels[item.status]}</span></td>
+                  <td><span className={`status-pill status-pill--${item.status}`}>{text.statusLabels[item.status]}</span></td>
                   {isAdmin ? (
-                    <td>
+                    <td className="data-table__actions-column">
                       <div className="table-actions">
                         <button type="button" className="ghost-button" onClick={() => openEditModal(item)}>
-                          Изменить
+                          {text.edit}
                         </button>
                         <button type="button" className="danger-button" disabled={isDeleting} onClick={() => setDeviceToDelete(item)}>
-                          Удалить
+                          {text.delete}
                         </button>
                       </div>
                     </td>
@@ -267,38 +289,38 @@ export function DevicesView({ isAdmin }: DevicesViewProps) {
       {isAdmin && isModalOpen ? (
         <div className="modal-backdrop" role="presentation" onClick={resetModal}>
           <div className="modal-card" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
-            <button type="button" className="icon-close-button" aria-label="Закрыть окно" onClick={resetModal}>×</button>
+            <button type="button" className="icon-close-button" aria-label={text.closeDialog} onClick={resetModal}>×</button>
             <div className="modal-card__header">
               <div>
-                <h3>{modalMode === 'edit' ? 'Изменить устройство' : 'Добавить устройство'}</h3>
-                <p>{modalMode === 'edit' ? 'Обновите данные сетевого узла.' : 'Введите основные данные сетевого узла для мониторинга.'}</p>
+                <h3>{modalMode === 'edit' ? text.editTitle : text.createTitle}</h3>
+                <p>{modalMode === 'edit' ? text.editSubtitle : text.createSubtitle}</p>
               </div>
             </div>
 
             <div className="form-grid">
-              <label className="field"><span>Имя устройства</span><input value={formState.name} onChange={(event) => setFormState((prev) => ({ ...prev, name: event.target.value }))} placeholder="Core Router R2" /></label>
-              <label className="field"><span>IP-адрес</span><input value={formState.ipAddress} onChange={(event) => setFormState((prev) => ({ ...prev, ipAddress: event.target.value }))} placeholder="192.168.0.50" /></label>
-              <label className="field"><span>Тип устройства</span><input value={formState.deviceType} onChange={(event) => setFormState((prev) => ({ ...prev, deviceType: event.target.value }))} placeholder="router" /></label>
-              <label className="field"><span>Vendor</span><input value={formState.vendor} onChange={(event) => setFormState((prev) => ({ ...prev, vendor: event.target.value }))} placeholder="Cisco" /></label>
-              <label className="field"><span>Model</span><input value={formState.model} onChange={(event) => setFormState((prev) => ({ ...prev, model: event.target.value }))} placeholder="ISR 4431" /></label>
-              <label className="field field--wide"><span>Локация</span><input value={formState.location} onChange={(event) => setFormState((prev) => ({ ...prev, location: event.target.value }))} placeholder="Серверная C" /></label>
-              <label className="field field--wide"><span>Описание</span><textarea rows={3} value={formState.description} onChange={(event) => setFormState((prev) => ({ ...prev, description: event.target.value }))} placeholder="Резервный маршрутизатор для VLAN-сегмента." /></label>
+              <label className="field"><span>{text.deviceName}</span><input value={formState.name} onChange={(event) => setFormState((prev) => ({ ...prev, name: event.target.value }))} placeholder={text.namePlaceholder} /></label>
+              <label className="field"><span>{text.ipAddress}</span><input value={formState.ipAddress} onChange={(event) => setFormState((prev) => ({ ...prev, ipAddress: event.target.value }))} placeholder={text.ipPlaceholder} /></label>
+              <label className="field"><span>{text.deviceType}</span><input value={formState.deviceType} onChange={(event) => setFormState((prev) => ({ ...prev, deviceType: event.target.value }))} placeholder={text.typePlaceholder} /></label>
+              <label className="field"><span>{text.vendor}</span><input value={formState.vendor} onChange={(event) => setFormState((prev) => ({ ...prev, vendor: event.target.value }))} placeholder={text.vendorPlaceholder} /></label>
+              <label className="field"><span>{text.model}</span><input value={formState.model} onChange={(event) => setFormState((prev) => ({ ...prev, model: event.target.value }))} placeholder={text.modelPlaceholder} /></label>
+              <label className="field field--wide"><span>{text.siteLocation}</span><input value={formState.location} onChange={(event) => setFormState((prev) => ({ ...prev, location: event.target.value }))} placeholder={text.locationPlaceholder} /></label>
+              <label className="field field--wide"><span>{text.description}</span><textarea rows={3} value={formState.description} onChange={(event) => setFormState((prev) => ({ ...prev, description: event.target.value }))} placeholder={text.descriptionPlaceholder} /></label>
             </div>
 
             {formError ? <div className="form-error">{formError}</div> : null}
 
             <div className="modal-card__actions">
-              <button type="button" className="ghost-button" onClick={resetModal}>Отмена</button>
-              <button type="button" className="primary-button" disabled={isSubmitting} onClick={handleSubmitDevice}>{isSubmitting ? 'Сохранение...' : modalMode === 'edit' ? 'Сохранить изменения' : 'Сохранить устройство'}</button>
+              <button type="button" className="ghost-button" onClick={resetModal}>{text.cancel}</button>
+              <button type="button" className="primary-button" disabled={isSubmitting} onClick={handleSubmitDevice}>{isSubmitting ? text.saving : modalMode === 'edit' ? text.saveChanges : text.saveDevice}</button>
             </div>
           </div>
         </div>
       ) : null}
       {deviceToDelete ? (
         <ConfirmDialog
-          title="Удаление устройства"
-          message={`Удалить устройство "${deviceToDelete.name}" из системы мониторинга?`}
-          confirmLabel="Удалить"
+          title={text.deleteTitle}
+          message={text.deleteMessage(deviceToDelete.name)}
+          confirmLabel={text.deleteConfirm}
           tone="danger"
           onConfirm={() => handleDeleteDevice(deviceToDelete.id)}
           onCancel={() => setDeviceToDelete(null)}
@@ -306,10 +328,10 @@ export function DevicesView({ isAdmin }: DevicesViewProps) {
       ) : null}
       {deleteError ? (
         <ConfirmDialog
-          title="Ошибка удаления"
+          title={text.deleteErrorTitle}
           message={deleteError}
-          confirmLabel="Понятно"
-          cancelLabel="Закрыть"
+          confirmLabel={text.understood}
+          cancelLabel={text.close}
           tone="default"
           onConfirm={() => setDeleteError('')}
           onCancel={() => setDeleteError('')}

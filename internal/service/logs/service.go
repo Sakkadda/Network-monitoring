@@ -18,6 +18,7 @@ type Repository interface {
 	Create(ctx context.Context, item logentry.LogEntry) (logentry.LogEntry, error)
 	Update(ctx context.Context, item logentry.LogEntry) (logentry.LogEntry, error)
 	Delete(ctx context.Context, id int64) error
+	Clear(ctx context.Context) error
 }
 
 type Service struct {
@@ -113,6 +114,10 @@ func (s *Service) Delete(id int64) error {
 		return mapRepositoryError(err)
 	}
 	return nil
+}
+
+func (s *Service) Clear() error {
+	return s.repository.Clear(context.Background())
 }
 
 func marshalMetadata(value map[string]any) ([]byte, error) {

@@ -115,6 +115,11 @@ func (r *LogRepository) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
+func (r *LogRepository) Clear(ctx context.Context) error {
+	_, err := r.pool.Exec(ctx, `DELETE FROM logs`)
+	return err
+}
+
 type logScanner interface {
 	Scan(dest ...any) error
 }

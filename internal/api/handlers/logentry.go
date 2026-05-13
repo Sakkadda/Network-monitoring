@@ -92,3 +92,12 @@ func (h LogEntryHandler) Delete(c *gin.Context) {
 
 	c.Status(http.StatusNoContent)
 }
+
+func (h LogEntryHandler) Clear(c *gin.Context) {
+	if err := h.service.Clear(); err != nil {
+		handleServiceError(c, err)
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}

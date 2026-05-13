@@ -2,8 +2,11 @@ package simulator
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"math/rand"
+	"sync"
 	"time"
 
 	"github.com/sakkada/network-monitoring-system/internal/domain/device"
@@ -19,7 +22,9 @@ type DeviceStateSimulator struct {
 	deviceService *devicesvc.Service
 	metricService *monitoringsvc.Service
 	logService    *logssvc.Service
+	mu            sync.RWMutex
 	interval      time.Duration
+	intervalCh    chan struct{}
 	random        *rand.Rand
 }
 
@@ -38,6 +43,7 @@ func NewDeviceStateSimulator(
 		metricService: metricService,
 		logService:    logService,
 		interval:      interval,
+		intervalCh:    make(chan struct{}, 1),
 		random:        rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
@@ -47,19 +53,63 @@ func (s *DeviceStateSimulator) Start(ctx context.Context) {
 		log.Printf("device simulator initial cycle failed: %v", err)
 	}
 
-	ticker := time.NewTicker(s.interval)
-	defer ticker.Stop()
-
 	for {
+		timer := time.NewTimer(s.currentInterval())
+
 		select {
 		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
 			return
-		case <-ticker.C:
+		case <-s.intervalCh:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			continue
+		case <-timer.C:
 			if err := s.runCycle(); err != nil {
 				log.Printf("device simulator cycle failed: %v", err)
 			}
 		}
 	}
+}
+
+func (s *DeviceStateSimulator) IntervalSeconds() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return int(s.interval / time.Second)
+}
+
+func (s *DeviceStateSimulator) SetIntervalSeconds(seconds int) error {
+	if seconds < 5 {
+		return errors.New("simulator interval must be at least 5 seconds")
+	}
+
+	s.mu.Lock()
+	s.interval = time.Duration(seconds) * time.Second
+	s.mu.Unlock()
+
+	select {
+	case s.intervalCh <- struct{}{}:
+	default:
+	}
+
+	return nil
+}
+
+func (s *DeviceStateSimulator) currentInterval() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.interval
 }
 
 func (s *DeviceStateSimulator) runCycle() error {
@@ -68,14 +118,17 @@ func (s *DeviceStateSimulator) runCycle() error {
 		return err
 	}
 
+	nextStatuses := s.buildNextStatuses(len(devices))
+
 	onlineCount := 0
 	warningCount := 0
 	offlineCount := 0
 	changedCount := 0
 
-	for _, current := range devices {
-		nextStatus := s.pickNextStatus(current.Status)
+	for index, current := range devices {
+		nextStatus := nextStatuses[index]
 		checkedAt := time.Now().UTC()
+		isActive := current.IsActive
 
 		updated, err := s.deviceService.Update(current.ID, dto.UpdateDeviceRequest{
 			Name:          current.Name,
@@ -87,20 +140,22 @@ func (s *DeviceStateSimulator) runCycle() error {
 			Description:   current.Description,
 			Status:        nextStatus,
 			DataSource:    current.DataSource,
-			IsActive:      current.IsActive,
+			IsActive:      &isActive,
 			LastCheckedAt: &checkedAt,
 		})
 		if err != nil {
 			return err
 		}
 
-		if err := s.createMetrics(updated, checkedAt); err != nil {
+		snapshots := s.metricSnapshots(updated)
+
+		if err := s.createMetrics(updated, checkedAt, snapshots); err != nil {
 			return err
 		}
 
 		if updated.Status != current.Status {
 			changedCount++
-			if err := s.createStateChangeLog(updated, current.Status); err != nil {
+			if err := s.createStateChangeLog(updated, current.Status, snapshots); err != nil {
 				return err
 			}
 		}
@@ -122,47 +177,54 @@ func (s *DeviceStateSimulator) runCycle() error {
 	return nil
 }
 
-func (s *DeviceStateSimulator) pickNextStatus(current device.Status) device.Status {
-	roll := s.random.Intn(100)
-
-	switch current {
-	case device.StatusOnline:
-		if roll < 68 {
-			return device.StatusOnline
-		}
-		if roll < 90 {
-			return device.StatusWarning
-		}
-		return device.StatusOffline
-	case device.StatusWarning:
-		if roll < 35 {
-			return device.StatusOnline
-		}
-		if roll < 75 {
-			return device.StatusWarning
-		}
-		return device.StatusOffline
-	case device.StatusOffline:
-		if roll < 30 {
-			return device.StatusOnline
-		}
-		if roll < 55 {
-			return device.StatusWarning
-		}
-		return device.StatusOffline
-	default:
-		if roll < 50 {
-			return device.StatusOnline
-		}
-		if roll < 80 {
-			return device.StatusWarning
-		}
-		return device.StatusOffline
+func (s *DeviceStateSimulator) buildNextStatuses(total int) []device.Status {
+	if total <= 0 {
+		return nil
 	}
+
+	onlinePercent, warningPercent, _ := s.pickStatusDistribution()
+
+	onlineTarget := int(float64(total) * float64(onlinePercent) / 100)
+	warningTarget := int(float64(total) * float64(warningPercent) / 100)
+	offlineTarget := total - onlineTarget - warningTarget
+
+	statuses := make([]device.Status, 0, total)
+
+	for i := 0; i < onlineTarget; i++ {
+		statuses = append(statuses, device.StatusOnline)
+	}
+
+	for i := 0; i < warningTarget; i++ {
+		statuses = append(statuses, device.StatusWarning)
+	}
+
+	for i := 0; i < offlineTarget; i++ {
+		statuses = append(statuses, device.StatusOffline)
+	}
+
+	s.random.Shuffle(len(statuses), func(i, j int) {
+		statuses[i], statuses[j] = statuses[j], statuses[i]
+	})
+
+	return statuses
 }
 
-func (s *DeviceStateSimulator) createMetrics(item device.Device, collectedAt time.Time) error {
-	for _, snapshot := range s.metricSnapshots(item) {
+func (s *DeviceStateSimulator) pickStatusDistribution() (online int, warning int, offline int) {
+	for attempt := 0; attempt < 64; attempt++ {
+		online = 50 + s.random.Intn(21)
+		offline = s.random.Intn(21)
+		warning = 100 - online - offline
+
+		if warning >= 20 && warning <= 40 {
+			return online, warning, offline
+		}
+	}
+
+	return 60, 30, 10
+}
+
+func (s *DeviceStateSimulator) createMetrics(item device.Device, collectedAt time.Time, snapshots []metricSnapshot) error {
+	for _, snapshot := range snapshots {
 		_, err := s.metricService.Create(dto.CreateMetricRequest{
 			DeviceID:    item.ID,
 			MetricType:  snapshot.metricType,
@@ -180,7 +242,7 @@ func (s *DeviceStateSimulator) createMetrics(item device.Device, collectedAt tim
 	return nil
 }
 
-func (s *DeviceStateSimulator) createStateChangeLog(item device.Device, previousStatus device.Status) error {
+func (s *DeviceStateSimulator) createStateChangeLog(item device.Device, previousStatus device.Status, snapshots []metricSnapshot) error {
 	level := logentry.LevelInfo
 	action := "device_status_updated"
 
@@ -192,6 +254,8 @@ func (s *DeviceStateSimulator) createStateChangeLog(item device.Device, previous
 		level = logentry.LevelError
 		action = "device_became_offline"
 	}
+
+	reason, triggerMetric := s.statusChangeReason(item.Status, snapshots)
 
 	_, err := s.logService.Create(dto.CreateLogEntryRequest{
 		DeviceID:  &item.ID,
@@ -205,6 +269,9 @@ func (s *DeviceStateSimulator) createStateChangeLog(item device.Device, previous
 			"previousStatus": previousStatus,
 			"currentStatus":  item.Status,
 			"deviceName":     item.Name,
+			"reason":         reason,
+			"triggerMetric":  triggerMetric,
+			"metrics":        s.metricsMetadata(snapshots),
 		},
 	})
 
@@ -274,4 +341,56 @@ func (s *DeviceStateSimulator) metricsForOffline() []metricSnapshot {
 		{metricType: metric.TypeCPUUsage, value: 0, unit: "%", status: metric.StatusCritical},
 		{metricType: metric.TypePacketLoss, value: 100, unit: "%", status: metric.StatusCritical},
 	}
+}
+
+func (s *DeviceStateSimulator) statusChangeReason(status device.Status, snapshots []metricSnapshot) (string, string) {
+	values := s.metricsMetadata(snapshots)
+	latency, _ := values["pingLatencyMs"].(float64)
+	memory, _ := values["memoryUsagePercent"].(float64)
+	cpu, _ := values["cpuUsagePercent"].(float64)
+	packetLoss, _ := values["packetLossPercent"].(float64)
+
+	switch status {
+	case device.StatusOffline:
+		return fmt.Sprintf("Device became unreachable: packet loss reached %.2f%% and latency dropped to %.2f ms.", packetLoss, latency), "packet_loss"
+	case device.StatusWarning:
+		if latency >= memory && latency >= cpu && latency >= packetLoss {
+			return fmt.Sprintf("Warning state triggered by increased latency: %.2f ms.", latency), "ping_latency"
+		}
+
+		if memory >= cpu && memory >= packetLoss {
+			return fmt.Sprintf("Warning state triggered by high memory usage: %.2f%%.", memory), "memory_usage"
+		}
+
+		if cpu >= packetLoss {
+			return fmt.Sprintf("Warning state triggered by high CPU usage: %.2f%%.", cpu), "cpu_usage"
+		}
+
+		return fmt.Sprintf("Warning state triggered by packet loss: %.2f%%.", packetLoss), "packet_loss"
+	default:
+		return fmt.Sprintf("Device recovered: latency %.2f ms, CPU %.2f%%, memory %.2f%%, packet loss %.2f%%.", latency, cpu, memory, packetLoss), "recovery"
+	}
+}
+
+func (s *DeviceStateSimulator) metricsMetadata(snapshots []metricSnapshot) map[string]any {
+	result := map[string]any{}
+
+	for _, snapshot := range snapshots {
+		switch snapshot.metricType {
+		case metric.TypePingLatency:
+			result["pingLatencyMs"] = roundMetricValue(snapshot.value)
+		case metric.TypeMemoryUsage:
+			result["memoryUsagePercent"] = roundMetricValue(snapshot.value)
+		case metric.TypeCPUUsage:
+			result["cpuUsagePercent"] = roundMetricValue(snapshot.value)
+		case metric.TypePacketLoss:
+			result["packetLossPercent"] = roundMetricValue(snapshot.value)
+		}
+	}
+
+	return result
+}
+
+func roundMetricValue(value float64) float64 {
+	return float64(int(value*100+0.5)) / 100
 }

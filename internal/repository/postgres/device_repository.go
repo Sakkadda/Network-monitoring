@@ -21,7 +21,7 @@ func NewDeviceRepository(pool *pgxpool.Pool) *DeviceRepository {
 
 func (r *DeviceRepository) List(ctx context.Context) ([]device.Device, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, name, ip_address::text, device_type, vendor, model, location, description,
+		SELECT id, name, host(ip_address), device_type, vendor, model, location, description,
 		       status, data_source, is_active, last_checked_at, created_at, updated_at
 		FROM devices
 		ORDER BY id
@@ -45,7 +45,7 @@ func (r *DeviceRepository) List(ctx context.Context) ([]device.Device, error) {
 
 func (r *DeviceRepository) GetByID(ctx context.Context, id int64) (device.Device, error) {
 	row := r.pool.QueryRow(ctx, `
-		SELECT id, name, ip_address::text, device_type, vendor, model, location, description,
+		SELECT id, name, host(ip_address), device_type, vendor, model, location, description,
 		       status, data_source, is_active, last_checked_at, created_at, updated_at
 		FROM devices
 		WHERE id = $1
@@ -82,7 +82,7 @@ func (r *DeviceRepository) Create(ctx context.Context, item device.Device) (devi
 			status, data_source, is_active, last_checked_at
 		)
 		VALUES ($1, $2::inet, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		RETURNING id, name, ip_address::text, device_type, vendor, model, location, description,
+		RETURNING id, name, host(ip_address), device_type, vendor, model, location, description,
 		          status, data_source, is_active, last_checked_at, created_at, updated_at
 	`,
 		item.Name, item.IPAddress, item.DeviceType, item.Vendor, item.Model, item.Location, item.Description,
@@ -118,7 +118,7 @@ func (r *DeviceRepository) Update(ctx context.Context, item device.Device) (devi
 		    last_checked_at = $12,
 		    updated_at = NOW()
 		WHERE id = $1
-		RETURNING id, name, ip_address::text, device_type, vendor, model, location, description,
+		RETURNING id, name, host(ip_address), device_type, vendor, model, location, description,
 		          status, data_source, is_active, last_checked_at, created_at, updated_at
 	`,
 		item.ID, item.Name, item.IPAddress, item.DeviceType, item.Vendor, item.Model, item.Location,

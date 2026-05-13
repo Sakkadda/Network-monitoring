@@ -87,6 +87,26 @@ func (s *Service) Create(input dto.CreateDeviceRequest) (device.Device, error) {
 }
 
 func (s *Service) Update(id int64, input dto.UpdateDeviceRequest) (device.Device, error) {
+	current, err := s.repository.GetByID(context.Background(), id)
+	if err != nil {
+		return device.Device{}, mapRepositoryError(err)
+	}
+
+	status := input.Status
+	if status == "" {
+		status = current.Status
+	}
+
+	dataSource := input.DataSource
+	if dataSource == "" {
+		dataSource = current.DataSource
+	}
+
+	isActive := current.IsActive
+	if input.IsActive != nil {
+		isActive = *input.IsActive
+	}
+
 	item := device.Device{
 		ID:          id,
 		Name:        input.Name,
@@ -96,13 +116,15 @@ func (s *Service) Update(id int64, input dto.UpdateDeviceRequest) (device.Device
 		Model:       input.Model,
 		Location:    input.Location,
 		Description: input.Description,
-		Status:      input.Status,
-		DataSource:  input.DataSource,
-		IsActive:    input.IsActive,
+		Status:      status,
+		DataSource:  dataSource,
+		IsActive:    isActive,
 	}
 
 	if input.LastCheckedAt != nil {
 		item.LastCheckedAt = input.LastCheckedAt.UTC()
+	} else {
+		item.LastCheckedAt = current.LastCheckedAt
 	}
 
 	updated, err := s.repository.Update(context.Background(), item)

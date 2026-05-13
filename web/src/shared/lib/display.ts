@@ -13,6 +13,14 @@ const locationLabels: Record<string, string> = {
   'Storage Rack': 'Стойка хранения',
 };
 
+const reverseLocationLabels = Object.fromEntries(
+  Object.entries(locationLabels).map(([raw, translated]) => [translated, raw]),
+) as Record<string, string>;
+
 export function translateLocation(location: string) {
   return locationLabels[location] ?? location;
+}
+
+export function normalizeLocationInput(location: string) {
+  return reverseLocationLabels[location] ?? location;
 }

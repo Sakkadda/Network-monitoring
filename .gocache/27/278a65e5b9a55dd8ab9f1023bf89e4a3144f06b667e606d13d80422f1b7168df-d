@@ -1,0 +1,4 @@
+./auth.go
+./device.go
+./logentry.go
+./metric.go
