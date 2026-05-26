@@ -144,6 +144,7 @@ export const uiText = {
       searchPlaceholder: 'Enter device name',
       noData: 'No data',
       notArrived: 'Metric has not arrived yet',
+      becameOfflineAt: 'Offline since',
     },
     logs: {
       logLevelLabels: { all: 'All levels', info: 'Info', warning: 'Warning', error: 'Error', audit: 'Audit' },
@@ -401,6 +402,7 @@ export const uiText = {
       searchPlaceholder: 'Введите имя устройства',
       noData: 'Нет данных',
       notArrived: 'Метрика еще не поступала',
+      becameOfflineAt: 'Недоступно с',
     },
     logs: {
       logLevelLabels: { all: 'Все уровни', info: 'Инфо', warning: 'Предупреждение', error: 'Ошибка', audit: 'Аудит' },

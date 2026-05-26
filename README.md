@@ -1,50 +1,168 @@
-# Network Infrastructure Monitoring System
+# Система мониторинга сетевой инфраструктуры
 
-Prototype of a network infrastructure monitoring system with Go backend and React frontend.
+Программный прототип системы мониторинга сетевой инфраструктуры с серверной частью на Go и клиентским веб-интерфейсом на React.
 
-## Planned stack
+Система позволяет просматривать сетевые устройства, отслеживать их состояние, анализировать метрики, работать с журналом событий и управлять пользователями с разграничением прав доступа по ролям.
 
-- Go
-- Gin
-- PostgreSQL
-- Redis
-- Vite
-- TypeScript
-- React
-- CSS
-- RTK Query
-- Zod
+## Основные возможности
 
-## Project structure
+- авторизация пользователей через backend-auth;
+- роли пользователей `admin` и `user`;
+- просмотр состояния сетевых устройств;
+- добавление, редактирование и удаление устройств для администратора;
+- отображение метрик устройств: задержка, потери пакетов, загрузка процессора и памяти;
+- вкладка графиков с распределением состояний и динамикой средних значений;
+- журнал событий с фильтрацией по уровню и устройству;
+- управление учетными записями пользователей;
+- настройка языка интерфейса и пользовательского профиля;
+- фоновое обновление состояний устройств и метрик для демонстрации динамической работы системы.
 
-- `cmd/api` - application entry point
-- `configs` - environment and app configuration templates
-- `deployments` - docker and deployment manifests
-- `docs` - architecture notes and project docs
-- `internal/api` - HTTP handlers, middleware, routes
-- `internal/app` - application bootstrap and dependency wiring
-- `internal/config` - config loading
-- `internal/domain` - core entities
-- `internal/dto` - request and response payloads
-- `internal/repository` - database access
-- `internal/service` - business logic
-- `internal/monitoring` - monitoring and metric processing logic
-- `internal/cache` - Redis integration
-- `internal/logger` - application and admin log configuration
-- `internal/utils` - helpers
-- `migrations` - SQL migrations
-- `pkg` - reusable public packages if needed
-- `scripts` - dev scripts
-- `storage` - local runtime storage for development
-- `web` - frontend application
-- `web/src` - React application source code
-- `web/public` - static public assets
-- `web/admin` - admin-specific frontend area, including logs page
+## Используемые технологии
 
-## Notes
+### Backend
 
-- Device data will initially be entered manually.
-- Some metrics can later be partially simulated or populated from semi-real test data.
-- Admin interface includes a dedicated logs section.
-- Backend starts as REST API on Gin, frontend will be built as a separate Vite app.
-- Built-in backend simulation can periodically update device statuses and metrics for demonstrations.
+- Go;
+- Gin;
+- PostgreSQL;
+- pgx;
+- bcrypt;
+- REST API.
+
+### Frontend
+
+- React;
+- TypeScript;
+- Vite;
+- Redux Toolkit / RTK Query;
+- Zod;
+- CSS.
+
+### Инструменты разработки
+
+- PowerShell-скрипты запуска и остановки dev-окружения;
+- SQL-миграции для PostgreSQL;
+- npm;
+- TypeScript compiler.
+
+## Структура проекта
+
+- `cmd/api` - точка входа серверного приложения;
+- `configs` - конфигурационные материалы проекта;
+- `deployments` - файлы для развертывания;
+- `docs` - документация и проектные материалы;
+- `internal/api` - HTTP-обработчики, middleware и маршруты API;
+- `internal/app` - инициализация сервера и связывание зависимостей;
+- `internal/config` - загрузка конфигурации из переменных окружения;
+- `internal/domain` - доменные модели устройств, метрик, логов и пользователей;
+- `internal/dto` - структуры входных и выходных данных;
+- `internal/repository/postgres` - работа с базой данных PostgreSQL;
+- `internal/service` - прикладная логика системы;
+- `internal/seed` - начальное заполнение демонстрационными данными;
+- `internal/simulator` - фоновое обновление состояний устройств и метрик;
+- `migrations` - SQL-миграции базы данных;
+- `pkg` - общие пакеты для переиспользования;
+- `scripts` - скрипты запуска и остановки проекта;
+- `storage` - локальное runtime-хранилище для разработки;
+- `web` - клиентское приложение;
+- `web/src` - исходный код React-приложения.
+
+## Требования для запуска
+
+- Go;
+- Node.js и npm;
+- PostgreSQL;
+- PowerShell для запуска готовых скриптов на Windows.
+
+По умолчанию проект ожидает базу данных PostgreSQL:
+
+```text
+postgres://postgres:postgres@127.0.0.1:5432/network_monitoring?sslmode=disable
+```
+
+## Подготовка базы данных
+
+Создать базу данных:
+
+```powershell
+& "C:\Program Files\PostgreSQL\17\bin\psql.exe" -U postgres -h localhost -d postgres -c "CREATE DATABASE network_monitoring;"
+```
+
+Применить миграции:
+
+```powershell
+& "C:\Program Files\PostgreSQL\17\bin\psql.exe" -U postgres -h localhost -d network_monitoring -f ".\migrations\000001_init_devices_metrics_logs.up.sql"
+& "C:\Program Files\PostgreSQL\17\bin\psql.exe" -U postgres -h localhost -d network_monitoring -f ".\migrations\000002_init_users.up.sql"
+```
+
+## Запуск проекта
+
+Установить зависимости frontend:
+
+```powershell
+cd .\web
+npm install
+cd ..
+```
+
+Запустить backend и frontend готовым скриптом:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-dev.ps1
+```
+
+После запуска приложение будет доступно по адресу:
+
+```text
+http://127.0.0.1:4173
+```
+
+Backend API по умолчанию запускается на:
+
+```text
+http://127.0.0.1:8080
+```
+
+Проверка работоспособности backend:
+
+```text
+http://127.0.0.1:8080/api/v1/health
+```
+
+Остановить dev-процессы:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\stop-dev.ps1
+```
+
+## Учетные записи по умолчанию
+
+При первом запуске backend создает стандартные учетные записи:
+
+| Логин | Пароль | Роль |
+|---|---|---|
+| `admin` | `admin123` | `admin` |
+| `user` | `user123` | `user` |
+
+Если таблица `users` уже содержит эти учетные записи, повторно они не пересоздаются.
+
+## Проверка проекта
+
+Проверка backend:
+
+```powershell
+go test ./...
+```
+
+Проверка frontend:
+
+```powershell
+cd .\web
+npx.cmd tsc -b
+```
+
+## Примечания
+
+- Для доступа к защищенным маршрутам API требуется токен авторизации.
+- Frontend автоматически добавляет токен в заголовок `Authorization`.
+- Данные устройств и метрик обновляются фоновым механизмом, чтобы демонстрировать работу мониторинга в динамике.
+- Для промышленного применения систему можно расширить подключением реальных источников мониторинга и внешних каналов уведомлений.

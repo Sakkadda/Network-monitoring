@@ -191,6 +191,7 @@ button { cursor: pointer; }
 .device-metric-card__identity { display: grid; gap: 6px; }
 .device-metric-card__identity h3 { margin: 0; font-size: 22px; line-height: 1.2; }
 .device-metric-card__identity p { margin: 0; color: #36505a; font-weight: 600; }
+.device-metric-card__offline-time { color: #991b1b; font-weight: 700; }
 .device-metric-card__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .device-metric-tile { min-height: 148px; padding: 16px; border-radius: 18px; background: linear-gradient(180deg, #f5fbff 0%, #eef5fb 100%); border: 1px solid rgba(90, 132, 167, .14); display: grid; gap: 10px; align-content: start; }
 .device-metric-tile__label { color: #5f6d78; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }

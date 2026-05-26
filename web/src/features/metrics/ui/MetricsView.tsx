@@ -10,6 +10,24 @@ type MetricKey = 'ping_latency' | 'memory_usage' | 'cpu_usage' | 'packet_loss';
 type MetricSortField = 'location' | 'status' | 'ping_latency' | 'memory_usage' | 'cpu_usage' | 'packet_loss';
 
 const metricOrder: MetricKey[] = ['ping_latency', 'memory_usage', 'cpu_usage', 'packet_loss'];
+const hiddenOfflineMetrics = new Set<MetricKey>(['ping_latency', 'memory_usage', 'cpu_usage']);
+
+function shouldHideOfflineMetric(deviceStatus: string, metricKey: MetricKey) {
+  return deviceStatus === 'offline' && hiddenOfflineMetrics.has(metricKey);
+}
+
+function formatOfflineSince(value: string, language: Language) {
+  if (!value) {
+    return '';
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  return date.toLocaleString(language === 'en' ? 'en-GB' : 'ru-RU');
+}
 
 export function MetricsView({ language }: { language: Language }) {
   const text = uiText[language].metrics;
@@ -132,40 +150,55 @@ export function MetricsView({ language }: { language: Language }) {
         </div>
       </div>
       <div className="device-metric-grid">
-        {deviceMetricCards.map(({ device, metrics: deviceMetrics }) => (
-          <article key={device.id} className="device-metric-card">
-            <div className="device-metric-card__header">
-              <small className="device-metric-card__location">{translateLocation(device.location)}</small>
-              <span className={`status-pill status-pill--${device.status}`}>{statusLabels[device.status]}</span>
-            </div>
-            <div className="device-metric-card__identity">
-              <h3>{device.name}</h3>
-              <p>{device.ipAddress}</p>
-            </div>
+        {deviceMetricCards.map(({ device, metrics: deviceMetrics }) => {
+          const offlineSince = device.status === 'offline' ? formatOfflineSince(device.lastCheckedAt, language) : '';
 
-            <div className="device-metric-card__grid">
-              {deviceMetrics.map(({ key, label, metric }) => (
-                <div key={key} className="device-metric-tile">
-                  <span className="device-metric-tile__label">{label}</span>
-                  {metric ? (
-                    <>
-                      <strong className="device-metric-tile__value">{metric.value} {formatUnit(metric.unit, language)}</strong>
-                      <span className={`status-pill status-pill--${metric.status === 'critical' ? 'offline' : metric.status === 'warning' ? 'warning' : 'online'}`}>
-                        {metricStatusLabels[metric.status]}
-                      </span>
-                      <small>{new Date(metric.collectedAt).toLocaleTimeString(language === 'en' ? 'en-GB' : 'ru-RU')}</small>
-                    </>
-                  ) : (
-                    <>
-                      <strong className="device-metric-tile__value">{text.noData}</strong>
-                      <small>{text.notArrived}</small>
-                    </>
-                  )}
-                </div>
-              ))}
-            </div>
-          </article>
-        ))}
+          return (
+            <article key={device.id} className="device-metric-card">
+              <div className="device-metric-card__header">
+                <small className="device-metric-card__location">{translateLocation(device.location)}</small>
+                <span className={`status-pill status-pill--${device.status}`}>{statusLabels[device.status]}</span>
+              </div>
+              <div className="device-metric-card__identity">
+                <h3>{device.name}</h3>
+                <p>{device.ipAddress}</p>
+                {offlineSince ? (
+                  <small className="device-metric-card__offline-time">
+                    {text.becameOfflineAt}: {offlineSince}
+                  </small>
+                ) : null}
+              </div>
+
+              <div className="device-metric-card__grid">
+                {deviceMetrics.map(({ key, label, metric }) => {
+                  const hideMetricValue = shouldHideOfflineMetric(device.status, key);
+
+                  return (
+                    <div key={key} className="device-metric-tile">
+                      <span className="device-metric-tile__label">{label}</span>
+                      {metric ? (
+                        <>
+                          <strong className="device-metric-tile__value">
+                            {hideMetricValue ? '-' : `${metric.value} ${formatUnit(metric.unit, language)}`}
+                          </strong>
+                          <span className={`status-pill status-pill--${metric.status === 'critical' ? 'offline' : metric.status === 'warning' ? 'warning' : 'online'}`}>
+                            {metricStatusLabels[metric.status]}
+                          </span>
+                          <small>{new Date(metric.collectedAt).toLocaleTimeString(language === 'en' ? 'en-GB' : 'ru-RU')}</small>
+                        </>
+                      ) : (
+                        <>
+                          <strong className="device-metric-tile__value">{text.noData}</strong>
+                          <small>{text.notArrived}</small>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </article>
+          );
+        })}
       </div>
     </section>
   );
